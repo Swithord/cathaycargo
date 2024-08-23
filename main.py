@@ -8,6 +8,27 @@ from ultralytics import YOLO
 import numpy as np
 
 
+detection_graphics = [
+    ('UN marker', (0, 0, 0)),
+    ('UN number', (255, 0, 0)),
+    ('Cargo Only', (0, 255, 0)),
+    ('Class 1', (0, 255, 0)),
+    ('Class 2', (0, 0, 255)),
+    ('Class 3', (255, 255, 0)),
+    ('Class 4', (255, 0, 255)),
+    ('Class 5', (0, 255, 255)),
+    ('Class 6', (255, 255, 255)),
+    ('Class 7', (128, 0, 0)),
+    ('Class 8', (0, 128, 0)),
+    ('Class 9', (0, 0, 128)),
+    ('Goods', (0, 128, 128)),
+    ('Limited Quantities', (128, 128, 128)),
+    ('Lithium Batteries', (128, 0, 128)),
+    ('Orientation Marker', (128, 128, 0)),
+]
+
+
+
 class DetectedObject:
     def __init__(self, cls, confidence, bounding_box, bounding_box_xywh):
         assert len(bounding_box) == 4
@@ -94,27 +115,42 @@ def print_validation_results(goods_objects):
 model = YOLO('best.pt')
 
 
+def get_objects_aggregation(non_goods_objects):
+    name_conversions = ['UN number', 'UN marker', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', '', '', '', '', '', '']
+    agg = {}
+    for object in non_goods_objects:
+        try:
+            name = name_conversions[object.cls]
+        except IndexError:
+            continue
+
+        if name not in agg:
+            agg[name] = 1
+        else:
+            agg[name] += 1
+
+    return agg
+
+import cv2
+import numpy as np
+
 def plot_custom_boxes(frame, non_goods_objects, goods_objects):
     for good in goods_objects:
-        x, y, w, h = good.bounding_box_xywh
-        x -= w / 2
-        y -= h / 2
-        color = (0, 255, 0) if good.validate() else (0, 0, 255)
-        cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), color, 5)
-        text = 'valid' if good.validate() else 'invalid'
-        cv2.putText(frame, text, (int(x), int(y) - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, color, 5)
+        if good.contained_objects:
+            x, y, w, h = good.bounding_box_xywh
+            x -= w / 2
+            y -= h / 2
+            color = (0, 255, 0) if good.validate() else (0, 0, 255)
+            cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), color, 5)
+            cv2.putText(frame, get_textbox(good.validate()), (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 2, color, 5)
 
     for good in non_goods_objects:
         x, y, w, h = good.bounding_box_xywh
         x -= w / 2
         y -= h / 2
-        if good.cls in [0, 1]:
-            color = (0, 0, 0)
-        elif good.cls in [3, 4, 5, 6, 7, 8, 9, 10, 11]:
-            color = (255, 0, 0)
-        else:
-            color = (0, 255, 255)
-        cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), color, 2)
+        text, color = detection_graphics[good.cls]
+        cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), color, 5)
+        cv2.putText(frame, text, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 2, color, 5)
 
 
 def main():
@@ -127,12 +163,15 @@ def main():
         print(f"Error: Unable to access camera with index {camera_index}.")
         return
 
+    print('Press "q" to exit the program.')
+
     # Give the camera a few seconds to initialize
     time.sleep(2)
 
     while True:
         ret, frame = cap.read()
         if not ret:
+            print('?')
             break
 
         # Run object detection
